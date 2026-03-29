@@ -20,6 +20,7 @@ async function startBot() {
   const sock = makeWASocket({
     auth: state,
     logger,
+    version: [2, 3000, 1034074495], // Override stale version — fixes 405 (see Baileys#2376)
   });
 
   sock.ev.on('connection.update', (update) => {
@@ -44,21 +45,7 @@ async function startBot() {
         return;
       }
 
-      // 405 = WhatsApp rejected registration (rate-limited or temp block)
-      if (statusCode === 405) {
-        retryCount++;
-        if (retryCount > MAX_RETRIES) {
-          console.log(`[bot] WhatsApp keeps rejecting the connection (405). Gave up after ${MAX_RETRIES} retries.`);
-          console.log('[bot] Wait 5-10 minutes, then: rm -rf auth_info/ && npm start');
-          return;
-        }
-        const delay = getRetryDelay();
-        console.log(`[bot] WhatsApp rejected connection (405) — rate-limited. Retry ${retryCount}/${MAX_RETRIES} in ${delay / 1000}s...`);
-        setTimeout(startBot, delay);
-        return;
-      }
-
-      // Other recoverable errors
+      // Recoverable errors
       retryCount++;
       if (retryCount > MAX_RETRIES) {
         console.log(`[bot] Connection failed (status: ${statusCode}). Gave up after ${MAX_RETRIES} retries.`);
@@ -78,10 +65,12 @@ async function startBot() {
 
   sock.ev.on('creds.update', saveCreds);
 
+  // Debug: log ALL message events
   sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
-
+    console.log(`[debug] messages.upsert — type: ${type}, count: ${messages.length}`);
     for (const msg of messages) {
+      console.log(`[debug] msg from: ${msg.key.remoteJid}, fromMe: ${msg.key.fromMe}, type: ${Object.keys(msg.message || {}).join(',') || 'empty'}`);
+      if (type !== 'notify') continue;
       await handleMessage(sock, msg);
     }
   });
